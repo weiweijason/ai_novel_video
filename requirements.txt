@@ -1,0 +1,24 @@
+# Video Worker 依賴套件
+# 硬體需求: RTX 5080 16GB VRAM
+
+# 基礎套件
+requests>=2.31.0
+minio>=7.2.0
+
+# PyTorch (CUDA 12.4)
+torch>=2.1.0
+torchvision>=0.16.0
+
+# Wan / 影片生成
+diffusers>=0.27.0
+transformers>=4.37.0
+accelerate>=0.26.0
+
+# 影片處理
+decord>=0.6.0
+imageio>=2.33.0
+imageio-ffmpeg>=0.4.9
+moviepy>=1.0.3
+
+# 基礎
+numpy>=1.24.0
