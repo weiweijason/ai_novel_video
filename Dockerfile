@@ -38,5 +38,8 @@ ENV WORKER_HOSTNAME=video-worker
 ENV S3_ENDPOINT=http://minio:9000
 ENV S3_BUCKET=assets
 
-# 啟動命令
-CMD ["python", "main.py"]
+# 禁用 Python 輸出緩衝，讓日誌即時顯示
+ENV PYTHONUNBUFFERED=1
+
+# 啟動命令 (使用 -u 參數確保輸出即時顯示)
+CMD ["python", "-u", "main.py"]
