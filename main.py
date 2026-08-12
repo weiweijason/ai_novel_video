@@ -504,7 +504,7 @@ def main() -> None:
                 time.sleep(POLL_INTERVAL_SECONDS)
                 continue
             
-            current_job_id = job["id"]
+            current_job_id = job["job_id"]
             print(f"[{datetime.now(timezone.utc).isoformat()}] Claimed job: {current_job_id} (type: {job['type']})")
             
             # 更新狀態為 running
