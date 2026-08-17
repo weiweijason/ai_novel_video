@@ -168,8 +168,8 @@ def download_from_minio(object_url: str) -> bytes:
         # 找到 /assets/ 的位置
         assets_index = object_name.find("/assets/")
         if assets_index != -1:
-            # 提取 /assets/ 之後的路徑
-            object_name = object_name[assets_index + 1:]  # 去掉 "/assets/"，只保留相對路徑
+            # 提取 /assets/ 之後的路徑（"/assets/" = 8 個字元）
+            object_name = object_name[assets_index + 8:]
         else:
             raise ValueError(f"Could not find '/assets/' in URL: {object_url}")
     
