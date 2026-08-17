@@ -152,11 +152,28 @@ def upload_to_minio(data: bytes, object_name: str, content_type: str = "video/mp
 
 
 def download_from_minio(object_url: str) -> bytes:
-    """從 MinIO 下載檔案"""
-    # 從 URL 提取 object_name
-    # URL 格式: http://minio:9000/assets/path/to/file.mp4
-    base = f"{S3_ENDPOINT}/{S3_BUCKET}/"
-    object_name = object_url.replace(base, "")
+    """從 MinIO 下載檔案
+    
+    支援多種 URL 格式:
+    - 完整 URL: http://minio:9000/assets/scenes/xxx.png
+    - 外部 URL: https://anime-s3.weiwei92.cc/assets/scenes/xxx.png
+    - 相對路徑: scenes/xxx.png
+    """
+    # 移除 protocol 和 host，只保留 /assets/ 之後的路徑
+    # 處理各種 URL 格式
+    object_name = object_url
+    
+    # 如果是完整 URL，移除 protocol 和 host
+    if "://" in object_name:
+        # 找到 /assets/ 的位置
+        assets_index = object_name.find("/assets/")
+        if assets_index != -1:
+            # 提取 /assets/ 之後的路徑
+            object_name = object_name[assets_index + 1:]  # 去掉 "/assets/"，只保留相對路徑
+        else:
+            raise ValueError(f"Could not find '/assets/' in URL: {object_url}")
+    
+    print(f"  Downloading from MinIO: bucket={S3_BUCKET}, object={object_name}")
     
     response = minio_client.get_object(S3_BUCKET, object_name)
     data = response.read()
