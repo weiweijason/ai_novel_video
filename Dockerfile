@@ -22,9 +22,29 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # 安裝 Python 依賴
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel packaging \
-    && pip install --no-cache-dir torch torchvision \
-    && pip install --no-cache-dir -r requirements.txt
+# 1. 升級 pip 工具鏈
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel packaging
+# 2. 先安裝 torch（flash_attn 編譯需要）
+RUN pip install --no-cache-dir torch torchvision
+# 3. 安裝 flash_attn（使用 --no-build-isolation 讓它看到已安裝的 torch）
+RUN pip install --no-cache-dir --no-build-isolation flash_attn
+# 4. 安裝其他依賴（不包含 Wan 庫，因為它依賴 flash_attn）
+RUN pip install --no-cache-dir \
+    requests>=2.31.0 \
+    minio>=7.2.0 \
+    transformers>=4.37.0 \
+    accelerate>=0.26.0 \
+    diffusers>=0.27.0 \
+    open-clip-torch \
+    sentencepiece \
+    decord>=0.6.0 \
+    imageio>=2.33.0 \
+    imageio-ffmpeg>=0.4.9 \
+    moviepy>=1.0.3 \
+    tqdm \
+    numpy>=1.24.0
+# 5. 最後安裝 Wan 官方庫（依賴 flash_attn）
+RUN pip install --no-cache-dir git+https://github.com/Wan-Video/Wan2.1.git
 
 # 複製程式碼
 COPY . .
