@@ -33,6 +33,7 @@ S3_BUCKET = os.getenv("S3_BUCKET", "assets")
 
 # Wan API 設定
 WAN_API_URL = os.getenv("WAN_API_URL", "http://localhost:8080")
+WAN_API_KEY = os.getenv("WAN_API_KEY", "")  # Add API key support
 WAN_MODEL_PATH = os.getenv("WAN_MODEL_PATH", "/models/wan/video_gen_model")
 MOTION_MODEL_PATH = os.getenv("MOTION_MODEL_PATH", "/models/motion/controlnet_motion")
 
@@ -191,6 +192,10 @@ def submit_wan_video_generation(image_bytes: bytes, prompt: str, duration: float
         task_id: Wan 任務 ID
     """
     url = f"{WAN_API_URL}/api/v1/generate/video"
+    headers = {}
+    if WAN_API_KEY:
+        headers["Authorization"] = f"Bearer {WAN_API_KEY}"
+    
     files = {
         "image": ("input.png", image_bytes, "image/png")
     }
@@ -203,7 +208,7 @@ def submit_wan_video_generation(image_bytes: bytes, prompt: str, duration: float
         "height": VIDEO_HEIGHT,
         "num_inference_steps": NUM_INFERENCE_STEPS,
     }
-    response = requests.post(url, files=files, data=data, timeout=30)
+    response = requests.post(url, headers=headers, files=files, data=data, timeout=30)
     response.raise_for_status()
     result = response.json()
     return result["task_id"]
@@ -217,10 +222,14 @@ def wait_wan_video_result(task_id: str, timeout_seconds: int = 600) -> dict[str,
         任務歷史資料，包含輸出影片資訊
     """
     url = f"{WAN_API_URL}/api/v1/status/{task_id}"
+    headers = {}
+    if WAN_API_KEY:
+        headers["Authorization"] = f"Bearer {WAN_API_KEY}"
+    
     start_time = time.time()
     
     while time.time() - start_time < timeout_seconds:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         history = response.json()
         
@@ -240,7 +249,11 @@ def download_wan_video(task_id: str) -> bytes:
     從 Wan API 下載生成的影片
     """
     url = f"{WAN_API_URL}/api/v1/output/{task_id}"
-    response = requests.get(url, timeout=60)
+    headers = {}
+    if WAN_API_KEY:
+        headers["Authorization"] = f"Bearer {WAN_API_KEY}"
+    
+    response = requests.get(url, headers=headers, timeout=60)
     response.raise_for_status()
     return response.content
 
@@ -316,6 +329,10 @@ def generate_scene_video(user_input: dict[str, Any]) -> dict[str, Any]:
 def submit_wan_animation(character_image: bytes, motion_prompt: str, duration: float) -> str:
     """提交角色動畫生成請求"""
     url = f"{WAN_API_URL}/api/v1/generate/animation"
+    headers = {}
+    if WAN_API_KEY:
+        headers["Authorization"] = f"Bearer {WAN_API_KEY}"
+    
     files = {
         "character_image": ("character.png", character_image, "image/png")
     }
@@ -326,7 +343,7 @@ def submit_wan_animation(character_image: bytes, motion_prompt: str, duration: f
         "width": VIDEO_WIDTH,
         "height": VIDEO_HEIGHT,
     }
-    response = requests.post(url, files=files, data=data, timeout=30)
+    response = requests.post(url, headers=headers, files=files, data=data, timeout=30)
     response.raise_for_status()
     result = response.json()
     return result["task_id"]
@@ -434,6 +451,10 @@ def generate_camera_motion(user_input: dict[str, Any]) -> dict[str, Any]:
     try:
         print(f"  Submitting camera motion to Wan API: {WAN_API_URL}")
         url = f"{WAN_API_URL}/api/v1/generate/camera-motion"
+        headers = {}
+        if WAN_API_KEY:
+            headers["Authorization"] = f"Bearer {WAN_API_KEY}"
+        
         files = {
             "video": ("input.mp4", scene_video_data, "video/mp4")
         }
@@ -443,7 +464,7 @@ def generate_camera_motion(user_input: dict[str, Any]) -> dict[str, Any]:
             "angle": angle,
             "fps": VIDEO_FPS,
         }
-        response = requests.post(url, files=files, data=data, timeout=30)
+        response = requests.post(url, headers=headers, files=files, data=data, timeout=30)
         response.raise_for_status()
         task_id = response.json()["task_id"]
         print(f"  Task ID: {task_id}")
@@ -496,6 +517,8 @@ def main() -> None:
     print(f"  Worker ID: {WORKER_ID}")
     print(f"  API Base URL: {API_BASE_URL}")
     print(f"  S3 Endpoint: {S3_ENDPOINT}")
+    print(f"  Wan API URL: {WAN_API_URL}")
+    print(f"  Wan API Key: {'***' + WAN_API_KEY[-4:] if WAN_API_KEY else '(none)'}")
     print(f"  Capabilities: {WORKER_CAPABILITIES}")
     
     # 註冊 Worker
