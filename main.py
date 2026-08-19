@@ -181,7 +181,7 @@ pipeline = None
 
 def load_wan_model():
     """載入 Wan 本地模型"""
-    global pipeline
+    global pipeline, WAN_MODEL_PATH
     if pipeline is not None:
         return pipeline
     
@@ -197,6 +197,7 @@ def load_wan_model():
             WAN_MODEL_PATH,
             "/models/wan/Wan2.1-I2V-14B-720P-NF4.safetensors",
             "/app/models/Wan2.1-I2V-14B-720P-NF4.safetensors",
+            "models/Wan2.1-I2V-14B-720P-NF4.safetensors",
         ]
         found = False
         for path in possible_paths:
