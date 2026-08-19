@@ -22,7 +22,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # 安裝 Python 依賴
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel packaging \
+    && pip install --no-cache-dir -r requirements.txt
 
 # 複製程式碼
 COPY . .
