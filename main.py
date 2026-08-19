@@ -5,6 +5,7 @@ Video Worker - 本地 Wan 影片生成 Worker
 """
 
 import io
+import json
 import os
 import time
 import tempfile
@@ -14,9 +15,11 @@ from typing import Any
 import numpy as np
 import requests
 import torch
-from diffusers import DiffusionPipeline
 from minio import Minio
 from PIL import Image
+from transformers import AutoTokenizer
+from wan.configs import WAN_CONFIGS
+import wan
 
 
 # === 環境變數 ===
@@ -175,15 +178,15 @@ def download_from_minio(object_url: str) -> bytes:
     return data
 
 
-# === Wan 本地模型 ===
-pipeline = None
+# === Wan 本地模型 (使用 Wan 官方庫) ===
+wan_i2v = None
 
 
 def load_wan_model():
-    """載入 Wan 本地模型"""
-    global pipeline, WAN_MODEL_PATH
-    if pipeline is not None:
-        return pipeline
+    """載入 Wan 本地模型 (使用 Wan 官方 WanI2V)"""
+    global wan_i2v, WAN_MODEL_PATH
+    if wan_i2v is not None:
+        return wan_i2v
     
     print(f"  Loading Wan model from: {WAN_MODEL_PATH}")
     print(f"  GPU available: {torch.cuda.is_available()}")
@@ -211,18 +214,21 @@ def load_wan_model():
             raise FileNotFoundError(f"Model directory not found")
     
     try:
-        # 使用 WanImageToVideoPipeline (圖生影片)
-        from diffusers import WanImageToVideoPipeline
-        
-        pipeline = WanImageToVideoPipeline.from_pretrained(
-            WAN_MODEL_PATH,
-            torch_dtype=torch.float16,
+        # 使用 Wan 官方的 WanI2V 類別
+        cfg = WAN_CONFIGS['i2v-14B']
+        wan_i2v = wan.WanI2V(
+            config=cfg,
+            checkpoint_dir=WAN_MODEL_PATH,
+            device_id=0,
+            rank=0,
+            t5_fsdp=False,
+            dit_fsdp=False,
+            use_usp=False,
         )
-        pipeline.enable_model_cpu_offload()  # 節省 VRAM
-        print(f"  WanImageToVideoPipeline loaded successfully")
-        return pipeline
+        print(f"  WanI2V model loaded successfully")
+        return wan_i2v
     except Exception as e:
-        print(f"  WanImageToVideoPipeline load failed: {e}")
+        print(f"  WanI2V load failed: {e}")
         raise
 
 
@@ -235,30 +241,37 @@ def generate_video_with_wan(
     height: int = 1080,
 ) -> bytes:
     """
-    使用本地 Wan 模型生成影片
+    使用本地 Wan 模型生成影片 (WanI2V)
     """
-    global pipeline
-    if pipeline is None:
+    global wan_i2v
+    if wan_i2v is None:
         load_wan_model()
     
-    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    # 將圖片轉換為 Wan 需要的格式
+    image_pil = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     
-    print(f"  Generating video: {width}x{height}, {num_frames} frames, {NUM_INFERENCE_STEPS} steps")
+    # WanI2V 需要 max_area 參數
+    max_area = width * height
+    print(f"  Generating video: {width}x{height}, {num_frames} frames, max_area={max_area}")
     print(f"  Prompt: {prompt}")
     
     try:
-        result = pipeline(
-            image=image,
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            num_inference_steps=NUM_INFERENCE_STEPS,
-            num_frames=num_frames,
-            width=width,
-            height=height,
-            guidance_scale=5.0,
+        # 使用 WanI2V.generate() 方法
+        video = wan_i2v.generate(
+            input_prompt=prompt,
+            img=image_pil,
+            max_area=max_area,
+            frame_num=num_frames,
+            shift=5.0,
+            sampling_steps=NUM_INFERENCE_STEPS,
+            guide_scale=5.0,
+            n_prompt=negative_prompt,
+            seed=-1,
+            offload_model=True,
         )
         
-        video_frames = result.frames[0]
+        # video 是 numpy array (T, H, W, C)
+        video_frames = video
         
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
             tmp_path = tmp.name
@@ -266,7 +279,10 @@ def generate_video_with_wan(
         try:
             from moviepy import ImageSequenceClip
             
-            clip = ImageSequenceClip(list(video_frames), fps=VIDEO_FPS)
+            # 轉換為 PIL Image 列表
+            pil_frames = [Image.fromarray(frame.astype(np.uint8)) for frame in video_frames]
+            
+            clip = ImageSequenceClip(pil_frames, fps=VIDEO_FPS)
             clip.write_videofile(tmp_path, codec="libx264", logger=None)
             
             with open(tmp_path, "rb") as f:
