@@ -40,7 +40,9 @@ RUN pip install --no-cache-dir \
     imageio-ffmpeg>=0.4.9 \
     moviepy>=1.0.3 \
     tqdm \
-    numpy>=1.24.0
+    numpy>=1.24.0 \
+    easydict \
+    einops
 # 4. 安裝 Wan 官方庫（不裝依賴，避免 flash_attn）
 RUN pip install --no-cache-dir --no-deps git+https://github.com/Wan-Video/Wan2.1.git
 # 5. Patch Wan 讓 flash_attn 變成可選（使用 PyTorch 內建 attention）
