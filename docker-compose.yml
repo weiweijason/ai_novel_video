@@ -18,9 +18,7 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY}
       S3_SECRET_KEY: ${S3_SECRET_KEY}
       S3_BUCKET: ${S3_BUCKET:-assets}
-      WAN_API_URL: ${WAN_API_URL:-http://localhost:8080}
-      WAN_API_KEY: ${WAN_API_KEY:-}
-      WAN_MODEL_PATH: ${WAN_MODEL_PATH:-/models/wan/Wan2.1-I2V-14B-720P-NF4.safetensors}
+      WAN_MODEL_PATH: ${WAN_MODEL_PATH:-/models/Wan2.1-I2V-14B-720P-NF4.safetensors}
       MOTION_MODEL_PATH: ${MOTION_MODEL_PATH:-/models/motion}
       MAX_VIDEO_LENGTH: ${MAX_VIDEO_LENGTH:-300}
       VIDEO_FPS: ${VIDEO_FPS:-24}

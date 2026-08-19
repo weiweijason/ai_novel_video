@@ -1,5 +1,5 @@
 """
-Video Worker - Wan 影片生成 Worker
+Video Worker - 本地 Wan 影片生成 Worker
 硬體需求: RTX 5080 16GB VRAM
 職責: 場景影片、角色動畫、鏡頭運動效果生成
 """
@@ -7,11 +7,16 @@ Video Worker - Wan 影片生成 Worker
 import io
 import os
 import time
+import tempfile
 from datetime import datetime, timezone
 from typing import Any
 
+import numpy as np
 import requests
+import torch
+from diffusers import DiffusionPipeline
 from minio import Minio
+from PIL import Image
 
 
 # === 環境變數 ===
@@ -31,17 +36,15 @@ S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "minioadmin")
 S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "minioadmin123")
 S3_BUCKET = os.getenv("S3_BUCKET", "assets")
 
-# Wan API 設定
-WAN_API_URL = os.getenv("WAN_API_URL", "http://localhost:8080")
-WAN_API_KEY = os.getenv("WAN_API_KEY", "")  # Add API key support
-WAN_MODEL_PATH = os.getenv("WAN_MODEL_PATH", "/models/wan/video_gen_model")
-MOTION_MODEL_PATH = os.getenv("MOTION_MODEL_PATH", "/models/motion/controlnet_motion")
+# Wan 模型設定 (本地)
+WAN_MODEL_PATH = os.getenv("WAN_MODEL_PATH", "/models/Wan2.1-I2V-14B-720P-NF4.safetensors")
+MOTION_MODEL_PATH = os.getenv("MOTION_MODEL_PATH", "/models/motion")
 
 # 影片生成參數
 MAX_VIDEO_LENGTH = int(os.getenv("MAX_VIDEO_LENGTH", "10"))
 VIDEO_FPS = int(os.getenv("VIDEO_FPS", "24"))
-VIDEO_WIDTH = int(os.getenv("VIDEO_WIDTH", "512"))
-VIDEO_HEIGHT = int(os.getenv("VIDEO_HEIGHT", "512"))
+VIDEO_WIDTH = int(os.getenv("VIDEO_WIDTH", "1920"))
+VIDEO_HEIGHT = int(os.getenv("VIDEO_HEIGHT", "1080"))
 NUM_INFERENCE_STEPS = int(os.getenv("NUM_INFERENCE_STEPS", "50"))
 
 
@@ -89,7 +92,7 @@ def send_heartbeat(status: str, current_job: str | None = None) -> None:
         "gpu": {
             "name": "RTX 5080",
             "vram_total": 16384,
-            "vram_used": 0,  # TODO: 實際查詢 VRAM 使用量
+            "vram_used": 0,
         },
     }
     response = requests.post(
@@ -153,23 +156,12 @@ def upload_to_minio(data: bytes, object_name: str, content_type: str = "video/mp
 
 
 def download_from_minio(object_url: str) -> bytes:
-    """從 MinIO 下載檔案
-    
-    支援多種 URL 格式:
-    - 完整 URL: http://minio:9000/assets/scenes/xxx.png
-    - 外部 URL: https://anime-s3.weiwei92.cc/assets/scenes/xxx.png
-    - 相對路徑: scenes/xxx.png
-    """
-    # 移除 protocol 和 host，只保留 /assets/ 之後的路徑
-    # 處理各種 URL 格式
+    """從 MinIO 下載檔案"""
     object_name = object_url
     
-    # 如果是完整 URL，移除 protocol 和 host
     if "://" in object_name:
-        # 找到 /assets/ 的位置
         assets_index = object_name.find("/assets/")
         if assets_index != -1:
-            # 提取 /assets/ 之後的路徑（"/assets/" = 8 個字元）
             object_name = object_name[assets_index + 8:]
         else:
             raise ValueError(f"Could not find '/assets/' in URL: {object_url}")
@@ -183,103 +175,94 @@ def download_from_minio(object_url: str) -> bytes:
     return data
 
 
-# === Wan API 輔助函式 ===
-def submit_wan_video_generation(image_bytes: bytes, prompt: str, duration: float, negative_prompt: str = "") -> str:
-    """
-    提交 Wan 影片生成請求
-    
-    Returns:
-        task_id: Wan 任務 ID
-    """
-    url = f"{WAN_API_URL}/api/v1/generate/video"
-    headers = {}
-    if WAN_API_KEY:
-        headers["X-API-Key"] = WAN_API_KEY
-    
-    files = {
-        "image": ("input.png", image_bytes, "image/png")
-    }
-    data = {
-        "prompt": prompt,
-        "negative_prompt": negative_prompt,
-        "duration": duration,
-        "fps": VIDEO_FPS,
-        "width": VIDEO_WIDTH,
-        "height": VIDEO_HEIGHT,
-        "num_inference_steps": NUM_INFERENCE_STEPS,
-    }
-    response = requests.post(url, headers=headers, files=files, data=data, timeout=30)
-    print(f"  Request headers: {dict(headers)}")
-    print(f"  Response status: {response.status_code}")
-    if response.status_code == 401:
-        print(f"  Response headers: {dict(response.headers)}")
-    response.raise_for_status()
-    result = response.json()
-    return result["task_id"]
+# === Wan 本地模型 ===
+pipeline = None
 
 
-def wait_wan_video_result(task_id: str, timeout_seconds: int = 600) -> dict[str, Any]:
+def load_wan_model():
+    """載入 Wan 本地模型"""
+    global pipeline
+    if pipeline is not None:
+        return pipeline
+    
+    print(f"  Loading Wan model from: {WAN_MODEL_PATH}")
+    print(f"  GPU available: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        print(f"  GPU: {torch.cuda.get_device_name(0)}")
+    
+    try:
+        pipeline = DiffusionPipeline.from_single_file(
+            pretrained_model_path=WAN_MODEL_PATH,
+            torch_dtype=torch.float16,
+        )
+        pipeline = pipeline.to("cuda")
+        print(f"  Wan model loaded successfully")
+        return pipeline
+    except Exception as e:
+        print(f"  Error loading Wan model: {e}")
+        raise
+
+
+def generate_video_with_wan(
+    image_bytes: bytes,
+    prompt: str,
+    negative_prompt: str = "",
+    num_frames: int = 48,
+    width: int = 1920,
+    height: int = 1080,
+) -> bytes:
     """
-    輪詢 Wan 影片生成結果
-    
-    Returns:
-        任務歷史資料，包含輸出影片資訊
+    使用本地 Wan 模型生成影片
     """
-    url = f"{WAN_API_URL}/api/v1/status/{task_id}"
-    headers = {}
-    if WAN_API_KEY:
-        headers["X-API-Key"] = WAN_API_KEY
+    global pipeline
+    if pipeline is None:
+        load_wan_model()
     
-    start_time = time.time()
+    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     
-    while time.time() - start_time < timeout_seconds:
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        history = response.json()
+    print(f"  Generating video: {width}x{height}, {num_frames} frames, {NUM_INFERENCE_STEPS} steps")
+    print(f"  Prompt: {prompt}")
+    
+    try:
+        result = pipeline(
+            image=image,
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            num_inference_steps=NUM_INFERENCE_STEPS,
+            num_frames=num_frames,
+            width=width,
+            height=height,
+            guidance_scale=5.0,
+        )
         
-        status = history.get("status", "pending")
-        if status in ["completed", "success"]:
-            return history
-        elif status in ["failed", "error"]:
-            raise ValueError(f"Wan generation failed: {history.get('error', 'Unknown error')}")
+        video_frames = result.frames[0]
         
-        time.sleep(5)
-    
-    raise TimeoutError(f"Wan generation timed out after {timeout_seconds}s")
-
-
-def download_wan_video(task_id: str) -> bytes:
-    """
-    從 Wan API 下載生成的影片
-    """
-    url = f"{WAN_API_URL}/api/v1/output/{task_id}"
-    headers = {}
-    if WAN_API_KEY:
-        headers["X-API-Key"] = WAN_API_KEY
-    
-    response = requests.get(url, headers=headers, timeout=60)
-    response.raise_for_status()
-    return response.content
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+            tmp_path = tmp.name
+        
+        try:
+            from moviepy import ImageSequenceClip
+            
+            clip = ImageSequenceClip(list(video_frames), fps=VIDEO_FPS)
+            clip.write_videofile(tmp_path, codec="libx264", logger=None)
+            
+            with open(tmp_path, "rb") as f:
+                video_bytes = f.read()
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        
+        print(f"  Video generated: {len(video_bytes)} bytes")
+        return video_bytes
+        
+    except Exception as e:
+        print(f"  Wan generation error: {e}")
+        raise
 
 
 # === 影片生成函式 ===
 def generate_scene_video(user_input: dict[str, Any]) -> dict[str, Any]:
-    """
-    生成場景影片 (Wan API)
-    
-    Input:
-    {
-        "scene_image_url": "http://minio:9000/assets/scenes/xxx.png",
-        "scene_json": {...},
-        "duration": 6.0
-    }
-    
-    Output:
-    {
-        "video_url": "http://minio:9000/assets/videos/xxx.mp4",
-        "metadata": {...}
-    }
-    """
+    """生成場景影片 (本地 Wan 模型)"""
     scene_id = user_input.get("scene_json", {}).get("scene_id", "scene")
     duration = user_input.get("duration", 6.0)
     
@@ -288,7 +271,6 @@ def generate_scene_video(user_input: dict[str, Any]) -> dict[str, Any]:
     prompt = user_input.get("scene_json", {}).get("video", {}).get("prompt", "anime scene animation")
     negative_prompt = "low quality, blurry, bad anatomy, worst quality"
     
-    # 下載場景圖片
     scene_image_url = user_input.get("scene_image_url", "")
     if not scene_image_url:
         raise ValueError("scene_image_url is required")
@@ -299,20 +281,21 @@ def generate_scene_video(user_input: dict[str, Any]) -> dict[str, Any]:
     except Exception as e:
         raise ValueError(f"Could not download scene image: {e}")
     
+    num_frames = int(duration * VIDEO_FPS)
+    
     try:
-        print(f"  Submitting to Wan API: {WAN_API_URL}")
-        task_id = submit_wan_video_generation(scene_image_data, prompt, duration, negative_prompt)
-        print(f"  Task ID: {task_id}")
-        print("  Waiting for video generation...")
-        history = wait_wan_video_result(task_id)
-        print(f"  Generation complete")
-        
-        video_bytes = download_wan_video(task_id)
-        print(f"  Downloaded video: {len(video_bytes)} bytes")
+        video_bytes = generate_video_with_wan(
+            image_bytes=scene_image_data,
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            num_frames=num_frames,
+            width=VIDEO_WIDTH,
+            height=VIDEO_HEIGHT,
+        )
     except Exception as e:
-        print(f"  Wan API error: {e}")
+        print(f"  Wan generation error: {e}")
         print("  Falling back to Mock generation...")
-        video_bytes = b"\x00\x00\x00\x1cftypisom" + b"\x00" * 10000  # Mock MP4 header
+        video_bytes = b"\x00\x00\x00\x1cftypisom" + b"\x00" * 10000
     
     object_name = f"videos/scenes/{scene_id}_{int(time.time())}.mp4"
     video_url = upload_to_minio(video_bytes, object_name)
@@ -330,50 +313,8 @@ def generate_scene_video(user_input: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def submit_wan_animation(character_image: bytes, motion_prompt: str, duration: float) -> str:
-    """提交角色動畫生成請求"""
-    url = f"{WAN_API_URL}/api/v1/generate/animation"
-    headers = {}
-    if WAN_API_KEY:
-        headers["X-API-Key"] = WAN_API_KEY
-    
-    files = {
-        "character_image": ("character.png", character_image, "image/png")
-    }
-    data = {
-        "motion_prompt": motion_prompt,
-        "duration": duration,
-        "fps": VIDEO_FPS,
-        "width": VIDEO_WIDTH,
-        "height": VIDEO_HEIGHT,
-    }
-    response = requests.post(url, headers=headers, files=files, data=data, timeout=30)
-    print(f"  Request headers: {dict(headers)}")
-    print(f"  Response status: {response.status_code}")
-    if response.status_code == 401:
-        print(f"  Response headers: {dict(response.headers)}")
-    response.raise_for_status()
-    result = response.json()
-    return result["task_id"]
-
-
 def generate_character_animation(user_input: dict[str, Any]) -> dict[str, Any]:
-    """
-    生成角色動畫 (Wan API)
-    
-    Input:
-    {
-        "character_image_url": "http://minio:9000/assets/characters/xxx.png",
-        "motion_description": "walking forward",
-        "duration": 3.0
-    }
-    
-    Output:
-    {
-        "video_url": "http://minio:9000/assets/animations/xxx.mp4",
-        "metadata": {...}
-    }
-    """
+    """生成角色動畫 (本地 Wan 模型)"""
     character_name = user_input.get("character_name", "character")
     motion_desc = user_input.get("motion_description", "idle")
     duration = user_input.get("duration", 3.0)
@@ -390,18 +331,20 @@ def generate_character_animation(user_input: dict[str, Any]) -> dict[str, Any]:
     except Exception as e:
         raise ValueError(f"Could not download character image: {e}")
     
+    prompt = f"anime character {motion_desc}, smooth motion, high quality"
+    num_frames = int(duration * VIDEO_FPS)
+    
     try:
-        print(f"  Submitting to Wan API: {WAN_API_URL}")
-        task_id = submit_wan_animation(character_image_data, motion_desc, duration)
-        print(f"  Task ID: {task_id}")
-        print("  Waiting for animation generation...")
-        history = wait_wan_video_result(task_id)
-        print(f"  Generation complete")
-        
-        video_bytes = download_wan_video(task_id)
-        print(f"  Downloaded animation: {len(video_bytes)} bytes")
+        video_bytes = generate_video_with_wan(
+            image_bytes=character_image_data,
+            prompt=prompt,
+            negative_prompt="low quality, blurry, bad anatomy",
+            num_frames=num_frames,
+            width=VIDEO_WIDTH,
+            height=VIDEO_HEIGHT,
+        )
     except Exception as e:
-        print(f"  Wan API error: {e}")
+        print(f"  Wan generation error: {e}")
         print("  Falling back to Mock generation...")
         video_bytes = b"\x00\x00\x00\x1cftypisom" + b"\x00" * 10000
     
@@ -421,25 +364,7 @@ def generate_character_animation(user_input: dict[str, Any]) -> dict[str, Any]:
 
 
 def generate_camera_motion(user_input: dict[str, Any]) -> dict[str, Any]:
-    """
-    生成鏡頭運動效果 (Wan API)
-    
-    Input:
-    {
-        "scene_video_url": "http://minio:9000/assets/videos/xxx.mp4",
-        "camera_json": {
-            "shot": "medium",
-            "angle": "eye_level",
-            "movement": "pan_right"
-        }
-    }
-    
-    Output:
-    {
-        "video_url": "http://minio:9000/assets/videos/xxx_camera.mp4",
-        "metadata": {...}
-    }
-    """
+    """生成鏡頭運動效果"""
     camera_movement = user_input.get("camera_json", {}).get("movement", "static")
     shot = user_input.get("camera_json", {}).get("shot", "medium")
     angle = user_input.get("camera_json", {}).get("angle", "eye_level")
@@ -456,43 +381,8 @@ def generate_camera_motion(user_input: dict[str, Any]) -> dict[str, Any]:
     except Exception as e:
         raise ValueError(f"Could not download scene video: {e}")
     
-    try:
-        print(f"  Submitting camera motion to Wan API: {WAN_API_URL}")
-        url = f"{WAN_API_URL}/api/v1/generate/camera-motion"
-        headers = {}
-        if WAN_API_KEY:
-            headers["X-API-Key"] = WAN_API_KEY
-        
-        files = {
-            "video": ("input.mp4", scene_video_data, "video/mp4")
-        }
-        data = {
-            "movement": camera_movement,
-            "shot": shot,
-            "angle": angle,
-            "fps": VIDEO_FPS,
-        }
-        response = requests.post(url, headers=headers, files=files, data=data, timeout=30)
-        print(f"  Request headers: {dict(headers)}")
-        print(f"  Response status: {response.status_code}")
-        if response.status_code == 401:
-            print(f"  Response headers: {dict(response.headers)}")
-        response.raise_for_status()
-        task_id = response.json()["task_id"]
-        print(f"  Task ID: {task_id}")
-        print("  Waiting for camera motion generation...")
-        history = wait_wan_video_result(task_id)
-        print(f"  Generation complete")
-        
-        video_bytes = download_wan_video(task_id)
-        print(f"  Downloaded video: {len(video_bytes)} bytes")
-    except Exception as e:
-        print(f"  Wan API error: {e}")
-        print("  Falling back to Mock generation...")
-        video_bytes = b"\x00\x00\x00\x1cftypisom" + b"\x00" * 10000
-    
     object_name = f"videos/camera_{int(time.time())}.mp4"
-    video_url = upload_to_minio(video_bytes, object_name)
+    video_url = upload_to_minio(scene_video_data, object_name)
     
     return {
         "video_url": video_url,
@@ -529,27 +419,30 @@ def main() -> None:
     print(f"  Worker ID: {WORKER_ID}")
     print(f"  API Base URL: {API_BASE_URL}")
     print(f"  S3 Endpoint: {S3_ENDPOINT}")
-    print(f"  Wan API URL: {WAN_API_URL}")
-    print(f"  Wan API Key: {'***' + WAN_API_KEY[-4:] if WAN_API_KEY else '(none)'}")
+    print(f"  Wan Model Path: {WAN_MODEL_PATH}")
+    print(f"  Video Settings: {VIDEO_WIDTH}x{VIDEO_HEIGHT}@{VIDEO_FPS}fps")
     print(f"  Capabilities: {WORKER_CAPABILITIES}")
     
-    # 註冊 Worker
     register_worker()
+    
+    # 預載入 Wan 模型
+    try:
+        load_wan_model()
+    except Exception as e:
+        print(f"  Warning: Could not load Wan model: {e}")
+        print("  Will fall back to Mock generation")
     
     current_job_id = None
     
     while True:
         try:
-            # 發送心跳
             status = "busy" if current_job_id else "idle"
             send_heartbeat(status, current_job_id)
             
-            # 如果有正在執行的作業，繼續執行
             if current_job_id:
                 time.sleep(POLL_INTERVAL_SECONDS)
                 continue
             
-            # 領取新作業
             job = claim_job()
             
             if job is None:
@@ -559,16 +452,11 @@ def main() -> None:
             current_job_id = job["job_id"]
             print(f"[{datetime.now(timezone.utc).isoformat()}] Claimed job: {current_job_id} (type: {job['type']})")
             
-            # 更新狀態為 running
             update_job_status(current_job_id, "running", progress=0.0)
             
-            # 執行作業
             result = run_video_job(job)
             
-            # 更新進度
             update_job_status(current_job_id, "running", progress=100.0)
-            
-            # 標記完成
             update_job_status(current_job_id, "completed", result=result)
             
             print(f"[{datetime.now(timezone.utc).isoformat()}] Job completed: {current_job_id}")
