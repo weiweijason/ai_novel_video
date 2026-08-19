@@ -46,22 +46,8 @@ RUN pip install --no-cache-dir \
 # 4. 安裝 Wan 官方庫（不裝依賴，避免 flash_attn）
 RUN pip install --no-cache-dir --no-deps git+https://github.com/Wan-Video/Wan2.1.git
 # 5. Patch Wan 讓 flash_attn 變成可選（使用 PyTorch 內建 attention）
-RUN python3 << 'PATCH_SCRIPT'
-import os
-f = '/opt/venv/lib/python3.10/site-packages/wan/modules/attention.py'
-if os.path.exists(f):
-    with open(f, 'r') as fh:
-        content = fh.read()
-    content = content.replace(
-        'import flash_attn',
-        'try:\n    import flash_attn\nexcept ImportError:\n    flash_attn = None'
-    )
-    with open(f, 'w') as fh:
-        fh.write(content)
-    print("Patched attention.py to make flash_attn optional")
-else:
-    print("attention.py not found, skipping patch")
-PATCH_SCRIPT
+COPY patch_wan.py .
+RUN python3 patch_wan.py
 
 # 複製程式碼
 COPY . .
