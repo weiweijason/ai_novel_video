@@ -194,7 +194,7 @@ def submit_wan_video_generation(image_bytes: bytes, prompt: str, duration: float
     url = f"{WAN_API_URL}/api/v1/generate/video"
     headers = {}
     if WAN_API_KEY:
-        headers["Authorization"] = f"Bearer {WAN_API_KEY}"
+        headers["X-API-Key"] = WAN_API_KEY
     
     files = {
         "image": ("input.png", image_bytes, "image/png")
@@ -224,7 +224,7 @@ def wait_wan_video_result(task_id: str, timeout_seconds: int = 600) -> dict[str,
     url = f"{WAN_API_URL}/api/v1/status/{task_id}"
     headers = {}
     if WAN_API_KEY:
-        headers["Authorization"] = f"Bearer {WAN_API_KEY}"
+        headers["X-API-Key"] = WAN_API_KEY
     
     start_time = time.time()
     
@@ -251,7 +251,7 @@ def download_wan_video(task_id: str) -> bytes:
     url = f"{WAN_API_URL}/api/v1/output/{task_id}"
     headers = {}
     if WAN_API_KEY:
-        headers["Authorization"] = f"Bearer {WAN_API_KEY}"
+        headers["X-API-Key"] = WAN_API_KEY
     
     response = requests.get(url, headers=headers, timeout=60)
     response.raise_for_status()
@@ -331,7 +331,7 @@ def submit_wan_animation(character_image: bytes, motion_prompt: str, duration: f
     url = f"{WAN_API_URL}/api/v1/generate/animation"
     headers = {}
     if WAN_API_KEY:
-        headers["Authorization"] = f"Bearer {WAN_API_KEY}"
+        headers["X-API-Key"] = WAN_API_KEY
     
     files = {
         "character_image": ("character.png", character_image, "image/png")
@@ -453,7 +453,7 @@ def generate_camera_motion(user_input: dict[str, Any]) -> dict[str, Any]:
         url = f"{WAN_API_URL}/api/v1/generate/camera-motion"
         headers = {}
         if WAN_API_KEY:
-            headers["Authorization"] = f"Bearer {WAN_API_KEY}"
+            headers["X-API-Key"] = WAN_API_KEY
         
         files = {
             "video": ("input.mp4", scene_video_data, "video/mp4")
