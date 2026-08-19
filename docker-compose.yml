@@ -18,8 +18,7 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY}
       S3_SECRET_KEY: ${S3_SECRET_KEY}
       S3_BUCKET: ${S3_BUCKET:-assets}
-      WAN_MODEL_PATH: ${WAN_MODEL_PATH:-/models/wan/Wan2.1-I2V-14B-720P-NF4.safetensors}
-      MOTION_MODEL_PATH: ${MOTION_MODEL_PATH:-/models/motion}
+      WAN_MODEL_PATH: ${WAN_MODEL_PATH:-/app/models/wan/Wan2.1-I2V-14B-720P}
       MAX_VIDEO_LENGTH: ${MAX_VIDEO_LENGTH:-300}
       VIDEO_FPS: ${VIDEO_FPS:-24}
       VIDEO_WIDTH: ${VIDEO_WIDTH:-1920}
@@ -33,6 +32,5 @@ services:
               count: 1
               capabilities: [gpu]
     volumes:
-      - ./models/wan:/models/wan
-      - ./models/motion:/models/motion
+      - ./models:/app/models
       - ./temp:/tmp

@@ -37,7 +37,7 @@ S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "minioadmin123")
 S3_BUCKET = os.getenv("S3_BUCKET", "assets")
 
 # Wan 模型設定 (本地)
-WAN_MODEL_PATH = os.getenv("WAN_MODEL_PATH", "/models/wan/Wan2.1-I2V-14B-720P-NF4.safetensors")
+WAN_MODEL_PATH = os.getenv("WAN_MODEL_PATH", "/app/models/wan/Wan2.1-I2V-14B-720P")
 MOTION_MODEL_PATH = os.getenv("MOTION_MODEL_PATH", "/models/motion")
 
 # 影片生成參數
@@ -190,14 +190,14 @@ def load_wan_model():
     if torch.cuda.is_available():
         print(f"  GPU: {torch.cuda.get_device_name(0)}")
     
-    # 檢查模型檔案是否存在
+    # 檢查模型目錄是否存在
     if not os.path.exists(WAN_MODEL_PATH):
         # 嘗試其他可能的路徑
         possible_paths = [
             WAN_MODEL_PATH,
-            "/models/wan/Wan2.1-I2V-14B-720P-NF4.safetensors",
-            "/app/models/Wan2.1-I2V-14B-720P-NF4.safetensors",
-            "models/Wan2.1-I2V-14B-720P-NF4.safetensors",
+            "/app/models/wan/Wan2.1-I2V-14B-720P",
+            "/models/wan/Wan2.1-I2V-14B-720P",
+            "./models/wan/Wan2.1-I2V-14B-720P",
         ]
         found = False
         for path in possible_paths:
@@ -208,7 +208,7 @@ def load_wan_model():
                 break
         if not found:
             print(f"  Model not found at any of: {possible_paths}")
-            raise FileNotFoundError(f"Model file not found")
+            raise FileNotFoundError(f"Model directory not found")
     
     try:
         # 使用 WanImageToVideoPipeline (圖生影片)
