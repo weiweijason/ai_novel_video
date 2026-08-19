@@ -37,7 +37,7 @@ S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "minioadmin123")
 S3_BUCKET = os.getenv("S3_BUCKET", "assets")
 
 # Wan 模型設定 (本地)
-WAN_MODEL_PATH = os.getenv("WAN_MODEL_PATH", "/models/Wan2.1-I2V-14B-720P-NF4.safetensors")
+WAN_MODEL_PATH = os.getenv("WAN_MODEL_PATH", "/models/wan/Wan2.1-I2V-14B-720P-NF4.safetensors")
 MOTION_MODEL_PATH = os.getenv("MOTION_MODEL_PATH", "/models/motion")
 
 # 影片生成參數
@@ -190,35 +190,39 @@ def load_wan_model():
     if torch.cuda.is_available():
         print(f"  GPU: {torch.cuda.get_device_name(0)}")
     
+    # 檢查模型檔案是否存在
+    if not os.path.exists(WAN_MODEL_PATH):
+        # 嘗試其他可能的路徑
+        possible_paths = [
+            WAN_MODEL_PATH,
+            "/models/wan/Wan2.1-I2V-14B-720P-NF4.safetensors",
+            "/app/models/Wan2.1-I2V-14B-720P-NF4.safetensors",
+        ]
+        found = False
+        for path in possible_paths:
+            if os.path.exists(path):
+                WAN_MODEL_PATH = path
+                print(f"  Found model at: {path}")
+                found = True
+                break
+        if not found:
+            print(f"  Model not found at any of: {possible_paths}")
+            raise FileNotFoundError(f"Model file not found")
+    
     try:
-        # Wan2.1-I2V 圖生影片模型
-        from diffusers import Wan21VideoToVideoPipeline, Wan21ImageToVideoPipeline
+        # 使用 WanImageToVideoPipeline (圖生影片)
+        from diffusers import WanImageToVideoPipeline
         
-        # 嘗試 Wan21ImageToVideoPipeline (圖生影片)
-        pipeline = Wan21ImageToVideoPipeline.from_pretrained(
+        pipeline = WanImageToVideoPipeline.from_pretrained(
             WAN_MODEL_PATH,
             torch_dtype=torch.float16,
         )
         pipeline.enable_model_cpu_offload()  # 節省 VRAM
-        print(f"  Wan2.1 Image-to-Video model loaded successfully")
+        print(f"  WanImageToVideoPipeline loaded successfully")
         return pipeline
-    except ImportError:
-        print("  Wan21ImageToVideoPipeline not found in diffusers")
-        print("  Available pipelines:", [x for x in dir(__import__('diffusers')) if 'Wan' in x])
     except Exception as e:
-        print(f"  Wan21ImageToVideoPipeline load failed: {e}")
-    
-    # Fallback: 嘗試從 safetensors 直接載入
-    try:
-        from safetensors.torch import load_file
-        state_dict = load_file(WAN_MODEL_PATH)
-        print(f"  Loaded safetensors with {len(state_dict)} keys")
-        print(f"  First 5 keys: {list(state_dict.keys())[:5]}")
-        # 根據 key 名稱判斷模型類型
-        raise NotImplementedError("Manual model construction needed based on safetensors keys")
-    except Exception as e:
-        print(f"  Safetensors load info: {e}")
-        raise ValueError("Could not load Wan model - check diffusers version and model format")
+        print(f"  WanImageToVideoPipeline load failed: {e}")
+        raise
 
 
 def generate_video_with_wan(
