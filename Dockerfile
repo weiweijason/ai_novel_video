@@ -24,8 +24,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY requirements.txt .
 # 1. 升級 pip 工具鏈
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel packaging
-# 2. 先安裝 torch（flash_attn 編譯需要）
-RUN pip install --no-cache-dir torch torchvision
+# 2. 先安裝 torch（CUDA 12.4 版本，匹配基礎映像）
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu124
 # 3. 安裝 flash_attn 編譯依賴 + flash_attn 本身
 RUN pip install --no-cache-dir psutil \
     && pip install --no-cache-dir --no-build-isolation flash_attn
