@@ -209,6 +209,10 @@ def submit_wan_video_generation(image_bytes: bytes, prompt: str, duration: float
         "num_inference_steps": NUM_INFERENCE_STEPS,
     }
     response = requests.post(url, headers=headers, files=files, data=data, timeout=30)
+    print(f"  Request headers: {dict(headers)}")
+    print(f"  Response status: {response.status_code}")
+    if response.status_code == 401:
+        print(f"  Response headers: {dict(response.headers)}")
     response.raise_for_status()
     result = response.json()
     return result["task_id"]
@@ -344,6 +348,10 @@ def submit_wan_animation(character_image: bytes, motion_prompt: str, duration: f
         "height": VIDEO_HEIGHT,
     }
     response = requests.post(url, headers=headers, files=files, data=data, timeout=30)
+    print(f"  Request headers: {dict(headers)}")
+    print(f"  Response status: {response.status_code}")
+    if response.status_code == 401:
+        print(f"  Response headers: {dict(response.headers)}")
     response.raise_for_status()
     result = response.json()
     return result["task_id"]
@@ -465,6 +473,10 @@ def generate_camera_motion(user_input: dict[str, Any]) -> dict[str, Any]:
             "fps": VIDEO_FPS,
         }
         response = requests.post(url, headers=headers, files=files, data=data, timeout=30)
+        print(f"  Request headers: {dict(headers)}")
+        print(f"  Response status: {response.status_code}")
+        if response.status_code == 401:
+            print(f"  Response headers: {dict(response.headers)}")
         response.raise_for_status()
         task_id = response.json()["task_id"]
         print(f"  Task ID: {task_id}")
