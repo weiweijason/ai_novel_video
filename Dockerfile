@@ -26,8 +26,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel packaging
 # 2. 先安裝 torch（flash_attn 編譯需要）
 RUN pip install --no-cache-dir torch torchvision
-# 3. 安裝 flash_attn（使用 --no-build-isolation 讓它看到已安裝的 torch）
-RUN pip install --no-cache-dir --no-build-isolation flash_attn
+# 3. 安裝 flash_attn 編譯依賴 + flash_attn 本身
+RUN pip install --no-cache-dir psutil \
+    && pip install --no-cache-dir --no-build-isolation flash_attn
 # 4. 安裝其他依賴（不包含 Wan 庫，因為它依賴 flash_attn）
 RUN pip install --no-cache-dir \
     requests>=2.31.0 \
