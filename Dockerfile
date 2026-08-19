@@ -26,7 +26,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel packaging
 # 2. 先安裝 torch（CUDA 12.4 版本，匹配基礎映像）
 RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu124
-# 3. 安裝其他依賴
+# 3. 安裝其他依賴（不包含 flash_attn）
 RUN pip install --no-cache-dir \
     requests>=2.31.0 \
     minio>=7.2.0 \
@@ -41,8 +41,8 @@ RUN pip install --no-cache-dir \
     moviepy>=1.0.3 \
     tqdm \
     numpy>=1.24.0
-# 4. 安裝 Wan 官方庫
-RUN pip install --no-cache-dir git+https://github.com/Wan-Video/Wan2.1.git
+# 4. 安裝 Wan 官方庫（不裝依賴，避免 flash_attn）
+RUN pip install --no-cache-dir --no-deps git+https://github.com/Wan-Video/Wan2.1.git
 # 5. Patch Wan 讓 flash_attn 變成可選（使用 PyTorch 內建 attention）
 RUN python3 << 'PATCH_SCRIPT'
 import os
