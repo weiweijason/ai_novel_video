@@ -24,8 +24,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY requirements.txt .
 # 1. 升級 pip 工具鏈
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel packaging
-# 2. 先安裝 torch（CUDA 12.4 版本，匹配基礎映像）
-RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu124
+# 2. 安裝 PyTorch Nightly (CUDA 12.4, 支援 RTX 50xx sm_120)
+RUN pip install --no-cache-dir --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu124
 # 3. 安裝其他依賴（不包含 flash_attn）
 RUN pip install --no-cache-dir \
     requests>=2.31.0 \
